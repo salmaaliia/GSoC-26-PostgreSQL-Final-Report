@@ -110,6 +110,8 @@ SELECT bt_index_check('t_idx', true);   -- no errors
 ```
 The merge halved the number of leaf pages. The 1357 deleted pages are reused by later page splits, so the index file keeps its size (21 MB), the same as with normal B-tree page deletion.
 
+A page that was just merged (M) is not merged again until VACUUM clears its flag. Running `bt_merge()` and VACUUM a second time gave 683 more merges: 693 leaf pages at 17.95% full.
+
 ## Future work
 
 - **Parallel backward scans:** there may be a deadlock in parallel backward recovery when a merge group returns a lot of rows. I am working on a fix.
