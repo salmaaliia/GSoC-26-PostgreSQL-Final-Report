@@ -70,6 +70,46 @@ The project is not finished yet. The patch is not committed, but it is a working
 - 3 patches: nbtree, pageinspect, amcheck (about 5600 lines in 30 files).
 - It applies on current master (as of October 2026) and passes the tests (core, pageinspect, amcheck, pg_waldump).
 
+## How to try it
+Apply the [v4 patches](https://www.postgresql.org/message-id/CANBEAPFHkuSHYDdp7%2BSGvPKvDarSHCATzoiU1wn0zwXQo6LGuw%40mail.gmail.com) on master, build, and install `contrib/pageinspect`, `contrib/pgstattuple` and `contrib/amcheck`. Then:
+
+```sql
+CREATE EXTENSION pageinspect;
+CREATE EXTENSION pgstattuple;
+CREATE EXTENSION amcheck;
+
+CREATE TABLE t (id int);
+INSERT INTO t SELECT generate_series(1, 1000000);
+CREATE INDEX t_idx ON t (id);
+
+-- delete 95% of the rows, spread over the whole index
+DELETE FROM t WHERE id % 20 <> 0;
+VACUUM t;
+
+SELECT leaf_pages, deleted_pages, avg_leaf_density FROM pgstatindex('t_idx');
+ leaf_pages | deleted_pages | avg_leaf_density
+------------+---------------+------------------
+       2733 |             0 |             4.73
+
+SELECT bt_merge('t_idx', 10.0, 90.0, 100000);
+ bt_merge
+----------
+     1357
+
+-- VACUUM removes the MA pages. It only scans the index when there is
+-- something to remove, so delete one more row first.
+DELETE FROM t WHERE id = 20;
+VACUUM (INDEX_CLEANUP ON) t;
+
+SELECT leaf_pages, deleted_pages, avg_leaf_density FROM pgstatindex('t_idx');
+ leaf_pages | deleted_pages | avg_leaf_density
+------------+---------------+------------------
+       1376 |          1357 |             9.16
+
+SELECT bt_index_check('t_idx', true);   -- no errors
+```
+The merge halved the number of leaf pages. The 1357 deleted pages are reused by later page splits, so the index file keeps its size (21 MB), the same as with normal B-tree page deletion.
+
 ## Future work
 
 - **Parallel backward scans:** there may be a deadlock in parallel backward recovery when a merge group returns a lot of rows. I am working on a fix.
@@ -79,7 +119,6 @@ The project is not finished yet. The patch is not committed, but it is a working
 - **Inner pages:** only leaf pages are merged. Merging inner pages is out of scope for now.
 
 I plan to continue working on this patch after GSoC and send v5 to pgsql-hackers.
-
 
 ## Challenges and lessons learned
 
