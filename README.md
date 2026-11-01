@@ -1,7 +1,5 @@
 # GSoC 2026: B-tree Leaf Page Merging in PostgreSQL
 
----
-
 ## Introduction
 
 I am Salma Elsayed, and during Google Summer of Code 2026 I worked on merging B-tree leaf pages in PostgreSQL.
@@ -20,7 +18,6 @@ The project is not finished yet. The patch is not committed, but it is a working
 - **Email**: salmasayed182003@gmail.com
 - **LinkedIn**: [Salma Elsayed](https://www.linkedin.com/in/salma-elsayed-322063224/)
 
----
 
 ## Design overview
 
@@ -35,8 +32,6 @@ The project is not finished yet. The patch is not committed, but it is a working
 - Merges are WAL-logged, so they work after a crash and on replicas.
 - Normal scans, parallel scans, and scans that change direction in the middle (like a cursor) all handle the M/MA design.
 - For now, a merge is started manually with the `bt_merge()` function in pageinspect.
-
----
 
 ## Work done
 
@@ -68,16 +63,12 @@ The project is not finished yet. The patch is not committed, but it is a working
    - Fixed a crash in `_bt_killitems()` that Yao Feng reported, when the page a scan just read became an MA page.
    - Added tests: amcheck checks for merged pages, and TAP tests for WAL replay and for concurrent scans during merges.
 
----
-
 ## Current status
 
 - The patch is not committed yet. It is under review on pgsql-hackers, and the latest version is [v4](https://www.postgresql.org/message-id/CANBEAPFHkuSHYDdp7%2BSGvPKvDarSHCATzoiU1wn0zwXQo6LGuw%40mail.gmail.com).
 - Code: [v4 commits](https://github.com/salmaaliia/postgres/commits/28e3e13ef08e4478be569a364d6db4f4eaa1da8b)
 - 3 patches: nbtree, pageinspect, amcheck (about 5600 lines in 30 files).
 - It applies on current master (as of October 2026) and passes the tests (core, pageinspect, amcheck, pg_waldump).
-
----
 
 ## Future work
 
@@ -89,7 +80,6 @@ The project is not finished yet. The patch is not committed, but it is a working
 
 I plan to continue working on this patch after GSoC and send v5 to pgsql-hackers.
 
----
 
 ## Challenges and lessons learned
 
@@ -97,8 +87,6 @@ I plan to continue working on this patch after GSoC and send v5 to pgsql-hackers
 - **Changing the design:** my first design was wrong, and the reviewers on pgsql-hackers explained why. I learned to ask early and share my design before writing a lot of code.
 - **Finding race bugs:** many bugs only happen when a merge runs at the exact moment a scan moves to the next page. I learned to use injection points to stop a scan at that moment and reproduce the bug every time.
 - **Working with the community:** this was my first time sending patches to pgsql-hackers. I learned how to write patch emails, answer review comments, and credit the people who found bugs.
-
----
 
 ## Acknowledgments
 I want to thank my mentors **Kirk Wolak**, **Andreas Karlsson** and **Pavlo Golub**. I also want to thank my mentors outside GSoC, **Andrey Borodin**, **Nikolay Samokhvalov** and **Andrei Lepikhov**.
