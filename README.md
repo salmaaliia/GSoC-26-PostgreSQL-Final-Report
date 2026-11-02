@@ -8,7 +8,9 @@ After a heavy INSERT workload, B-tree pages get split. After a heavy DELETE work
 
 In this project I implemented a leaf page merge algorithm. Merging is easy if you are the only database user. The hard part is doing it while other users are reading and writing the index, without blocking them and without their scans missing or repeating rows.
 
-The project is not finished yet. The patch is not committed, but it is a working patch ([v4](https://www.postgresql.org/message-id/CANBEAPFHkuSHYDdp7%2BSGvPKvDarSHCATzoiU1wn0zwXQo6LGuw%40mail.gmail.com)) under review on pgsql-hackers, not just a proof of concept.
+This project was known to be too big for GSoC from the start. Many hackers advised against taking it on, because merging B-tree pages has been an open problem in PostgreSQL for decades. Now it is on its way to being solved.
+
+The project is not finished yet. Our minimum goal was a proof of concept, and we went far past that: the patch is not committed, but it is a working patch ([v4](https://www.postgresql.org/message-id/CANBEAPFHkuSHYDdp7%2BSGvPKvDarSHCATzoiU1wn0zwXQo6LGuw%40mail.gmail.com)) under review on pgsql-hackers, not just a proof of concept.
 
 - **Project description**: [B-tree Index Bloat Reduction](<https://wiki.postgresql.org/wiki/GSoC_2026#B-tree_Index_Bloat_Reduction_(Page_Merge)>)
 - **Proposal**: [GSoC proposal](https://docs.google.com/document/d/1PIMG0N__4BIB0uDWOfcK-AruatNL8SCTlfTlBTCaoCo/edit?usp=sharing)
@@ -17,7 +19,6 @@ The project is not finished yet. The patch is not committed, but it is a working
 - **Mentors**: [Kirk Wolak](https://www.linkedin.com/in/kirk-wolak-7706737/), [Andreas Karlsson](https://hackorum.dev/person/andreas.karlsson@percona.com), [Pavlo Golub](https://github.com/pashagolub)
 - **Email**: salmasayed182003@gmail.com
 - **LinkedIn**: [Salma Elsayed](https://www.linkedin.com/in/salma-elsayed-322063224/)
-
 
 ## Design overview
 
@@ -48,7 +49,7 @@ The project is not finished yet. The patch is not committed, but it is a working
 
 4. [v2 (Aug 16)](https://www.postgresql.org/message-id/CANBEAPHRK_MqaRtSFnShS07M8fDftHmDsRrwOYqyL7%3DMFtmGvA%40mail.gmail.com): Michail Sirotkin found a bug in v1: a row inserted at the same time as a merge could not be found by later scans. The problem was in the case where a scan starts on an M page as its first page, and it was fixed in v2.
 
-5. [v3 (Sep 15)](https://www.postgresql.org/message-id/CANBEAPFy8ig42RBqu0Y8gvi9P5n7ApyoX6dgypZ%3DAwUCPEPgTg%40mail.gmail.com): In this version I added VACUUM cleanup for the MA page and for the M flag on the M pages. Cleanup depends on the `safemergexid` saved in MA, so we are sure no scan that started before the merge is still running, and no scan still needs recovery. VACUUM must keep the merge group connected the whole time, so it clears the M flags starting from the rightmost M page going left. The MA page is cleaned last: VACUUM marks it HALF_DEAD, and then it is deleted like a normal page. I also added WAL logging for the merge and the cleanup operations. TThe nbtree resource manager had only 1 free WAL record type (each resource manager can have 16) and we needed 3, so we added a new nbtree2 resource manager. This is still open for discussion.
+5. [v3 (Sep 15)](https://www.postgresql.org/message-id/CANBEAPFy8ig42RBqu0Y8gvi9P5n7ApyoX6dgypZ%3DAwUCPEPgTg%40mail.gmail.com): In this version I added VACUUM cleanup for the MA page and for the M flag on the M pages. Cleanup depends on the `safemergexid` saved in MA, so we are sure no scan that started before the merge is still running, and no scan still needs recovery. VACUUM must keep the merge group connected the whole time, so it clears the M flags starting from the rightmost M page going left. The MA page is cleaned last: VACUUM marks it HALF_DEAD, and then it is deleted like a normal page. I also added WAL logging for the merge and the cleanup operations. The nbtree resource manager had only 1 free WAL record type (each resource manager can have 16) and we needed 3, so we added a new nbtree2 resource manager. This is still open for discussion.
 
 6. [v4 (Oct 28)](https://www.postgresql.org/message-id/CANBEAPFHkuSHYDdp7%2BSGvPKvDarSHCATzoiU1wn0zwXQo6LGuw%40mail.gmail.com): During this version, Nikolay Samokhvalov tested the patch with his AI test harness and found many bugs, which helped us a lot ([issues](https://github.com/NikolayS/postgres/issues/101)). In the first 3 versions, recovery only worked for normal scans. Parallel scans and scans that change direction in the middle were not handled. Saving L's tuples in the scan's memory does not work for parallel scans, because workers do not share this data: if worker A read L and saved its tuples, and then worker B reads R (M), B cannot recover. This limitation is what led us to the current design.
    - Instead of saving all of L's tuples in the scan, the merge saves the boundary tuple between L and R on the MA page, next to `safemergexid`. It is a pivot tuple similar to a high key: it has L's last key and its highest heap TID (in case it is a posting list tuple).
@@ -71,6 +72,7 @@ The project is not finished yet. The patch is not committed, but it is a working
 - It applies on current master (as of October 2026) and passes the tests (core, pageinspect, amcheck, pg_waldump).
 
 ## How to try it
+
 Apply the [v4 patches](https://www.postgresql.org/message-id/CANBEAPFHkuSHYDdp7%2BSGvPKvDarSHCATzoiU1wn0zwXQo6LGuw%40mail.gmail.com) on master, build, and install `contrib/pageinspect`, `contrib/pgstattuple` and `contrib/amcheck`. Then:
 
 ```sql
@@ -108,6 +110,7 @@ SELECT leaf_pages, deleted_pages, avg_leaf_density FROM pgstatindex('t_idx');
 
 SELECT bt_index_check('t_idx', true);   -- no errors
 ```
+
 The merge halved the number of leaf pages. The 1357 deleted pages are reused by later page splits, so the index file keeps its size (21 MB), the same as with normal B-tree page deletion.
 
 A page that was just merged (M) is not merged again until VACUUM clears its flag. Running `bt_merge()` and VACUUM a second time gave 683 more merges: 693 leaf pages at 17.95% full.
@@ -120,7 +123,7 @@ A page that was just merged (M) is not merged again until VACUUM clears its flag
 - **Automatic merging:** for now a merge only runs when `bt_merge()` is called. In the end it should run on its own, for example during VACUUM.
 - **Inner pages:** only leaf pages are merged. Merging inner pages is out of scope for now.
 
-I plan to continue working on this patch after GSoC and send v5 to pgsql-hackers.
+Because of this work, I found a sponsor who support me in continuing after GSoC. I plan to keep working on this patch until it gets committed.
 
 ## Challenges and lessons learned
 
@@ -130,6 +133,7 @@ I plan to continue working on this patch after GSoC and send v5 to pgsql-hackers
 - **Working with the community:** this was my first time sending patches to pgsql-hackers. I learned how to write patch emails, answer review comments, and credit the people who found bugs.
 
 ## Acknowledgments
+
 I want to thank my mentors **Kirk Wolak**, **Andreas Karlsson** and **Pavlo Golub**. I also want to thank my mentors outside GSoC, **Andrey Borodin**, **Nikolay Samokhvalov** and **Andrei Lepikhov**.
 
-I also want to thank all the hackers and reviewers Matthias, Peter, Robert, Michail, Yao Feng who helped with their reviews and advice.
+I also want to thank all the hackers and reviewers Matthias, Peter, Robert, Oleg, Michail, Yao Feng who helped with their reviews and advice.
